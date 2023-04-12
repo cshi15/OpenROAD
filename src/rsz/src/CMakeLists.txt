@@ -52,6 +52,7 @@ target_sources(rsz
     Rebuffer.cc
     SteinerTree.cc
     EstimateWireParasitics.cc
+    WorstPaths.cc
 )
 
 target_include_directories(rsz

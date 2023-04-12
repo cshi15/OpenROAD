@@ -42,6 +42,7 @@
 #include "rsz/Resizer.hh"
 #include "sta/Delay.hh"
 #include "sta/Liberty.hh"
+#include "sta/MinMax.hh"
 #include "db_sta/dbNetwork.hh"
 
 namespace ord {
@@ -61,6 +62,11 @@ tclListSeqLibertyCell(Tcl_Obj *const source,
 PinSet *
 tclListSetPin(Tcl_Obj *source,
               Tcl_Interp *interp);
+
+void
+tclArgError(Tcl_Interp *interp,
+            const char *msg,
+            const char *arg);
 
 typedef NetSeq TmpNetSeq;
 typedef PinSet TmpPinSet;
@@ -82,6 +88,7 @@ using sta::TmpPinSet;
 using sta::RiseFall;
 using sta::tclListSeqLibertyCell;
 using sta::tclListSetPin;
+using sta::tclArgError;
 using sta::TmpNetSeq;
 using sta::LibertyPort;
 using sta::Delay;
@@ -89,6 +96,7 @@ using sta::Slew;
 using sta::dbNetwork;
 using sta::Network;
 using sta::stringEq;
+using sta::MinMax;
 
 using rsz::Resizer;
 using rsz::ParasiticsSrc;
@@ -197,6 +205,119 @@ tclListNetworkSet(Tcl_Obj *const source,
     $1 = ParasiticsSrc::global_routing;
   else {
     Tcl_SetResult(interp,const_cast<char*>("Error: parasitics source."), TCL_STATIC);
+    return TCL_ERROR;
+  }
+}
+
+%typemap(in) MinMax* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  MinMax *min_max = MinMax::find(arg);
+  if (min_max)
+    $1 = min_max;
+  else {
+    tclArgError(interp, "%s not min or max.", arg);
+    return TCL_ERROR;
+  }
+}
+
+%typemap(out) MinMax* {
+  Tcl_SetResult(interp, const_cast<char*>($1->asString()), TCL_STATIC);
+}
+
+%typemap(out) MinMax* {
+  Tcl_SetResult(interp, const_cast<char*>($1->asString()), TCL_STATIC);
+}
+
+%typemap(in) MinMaxAll* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  MinMaxAll *min_max = MinMaxAll::find(arg);
+  if (min_max)
+    $1 = min_max;
+  else {
+    tclArgError(interp, "%s not min, max or min_max.", arg);
+    return TCL_ERROR;
+  }
+}
+
+%typemap(in) MinMaxAllNull* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  if (stringEqual(arg, "NULL"))
+    $1 = nullptr;
+  else {
+    MinMaxAll *min_max = MinMaxAll::find(arg);
+    if (min_max)
+      $1 = min_max;
+    else {
+      tclArgError(interp, "%s not min, max or min_max.", arg);
+      return TCL_ERROR;
+    }
+  }
+}
+
+%typemap(out) MinMaxAll* {
+  Tcl_SetResult(interp, const_cast<char*>($1->asString()), TCL_STATIC);
+}
+
+// SetupHold is typedef'd to MinMax.
+%typemap(in) SetupHold* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  if (stringEqual(arg, "hold")
+      || stringEqual(arg, "min"))
+    $1 = MinMax::min();
+  else if (stringEqual(arg, "setup")
+	   || stringEqual(arg, "max"))
+    $1 = MinMax::max();
+  else {
+    tclArgError(interp, "%s not setup, hold, min or max.", arg);
+    return TCL_ERROR;
+  }
+}
+
+// SetupHoldAll is typedef'd to MinMaxAll.
+%typemap(in) SetupHoldAll* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  if (stringEqual(arg, "hold")
+      || stringEqual(arg, "min"))
+    $1 = SetupHoldAll::min();
+  else if (stringEqual(arg, "setup")
+	   || stringEqual(arg, "max"))
+    $1 = SetupHoldAll::max();
+  else if (stringEqual(arg, "setup_hold")
+	   || stringEqual(arg, "min_max"))
+    $1 = SetupHoldAll::all();
+  else {
+    tclArgError(interp, "%s not setup, hold, setup_hold, min, max or min_max.", arg);
+    return TCL_ERROR;
+  }
+}
+
+// EarlyLate is typedef'd to MinMax.
+%typemap(in) EarlyLate* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  EarlyLate *early_late = EarlyLate::find(arg);
+  if (early_late)
+    $1 = early_late;
+  else {
+    tclArgError(interp, "%s not early/min, late/max or early_late/min_max.", arg);
+    return TCL_ERROR;
+  }
+}
+
+// EarlyLateAll is typedef'd to MinMaxAll.
+%typemap(in) EarlyLateAll* {
+  int length;
+  char *arg = Tcl_GetStringFromObj($input, &length);
+  EarlyLateAll *early_late = EarlyLateAll::find(arg);
+  if (early_late)
+    $1 = early_late;
+  else {
+    tclArgError(interp, "%s not early/min, late/max or early_late/min_max.", arg);
     return TCL_ERROR;
   }
 }
@@ -670,6 +791,22 @@ set_worst_slack_nets_percent(float percent)
 {
   Resizer *resizer = getResizer();
   resizer->setWorstSlackNetsPercent(percent);
+}
+
+void
+helloworld_cmd()
+{
+  Resizer *resizer = getResizer();
+  resizer->helloworld();
+}
+
+void
+worst_failing_paths_cmd(const MinMax *min_max)
+{
+  Resizer *resizer = getResizer();
+  Slack worst_slack;
+  Vertex *worst_vertex;
+  resizer->worstFailingPaths(min_max, worst_slack, worst_vertex);
 }
 
 } // namespace

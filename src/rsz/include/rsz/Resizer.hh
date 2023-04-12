@@ -338,6 +338,11 @@ public:
   dbNetwork *getDbNetwork() { return db_network_; }
   double dbuToMeters(int dist) const;
   int metersToDbu(double dist) const;
+  void helloworld();
+  void worstFailingPaths(const MinMax *min_max,
+		// Return values.
+		Slack &worst_slack,
+		Vertex *&worst_vertex);
 
 protected:
   void init();
