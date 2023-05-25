@@ -801,12 +801,12 @@ helloworld_cmd()
 }
 
 void
-worst_failing_paths_cmd(const MinMax *min_max)
+worst_failing_paths_cmd()
 {
   Resizer *resizer = getResizer();
   Slack worst_slack;
   Vertex *worst_vertex;
-  resizer->worstFailingPaths(min_max, worst_slack, worst_vertex);
+  resizer->worstFailingPaths(worst_slack, worst_vertex);
 }
 
 } // namespace

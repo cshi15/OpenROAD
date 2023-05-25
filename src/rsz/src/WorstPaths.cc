@@ -93,6 +93,7 @@ using sta::PinSeq;
 using sta::PinSet;
 using sta::NetConnectedPinIterator;
 using sta::PathAnalysisPt;
+using sta::Delay;
 // using sta::fuzzyInf;
 
 
@@ -103,17 +104,16 @@ Resizer::helloworld()
 }
 
 void
-Resizer::worstFailingPaths(const MinMax *min_max,
+Resizer::worstFailingPaths(
 		// Return values.
 		Slack &worst_slack,
 		Vertex *&worst_vertex)
 {
+	
 	report_->reportLine("Worst failing paths: ");
-	// report_->reportLine("Inside failing paths function");
-
-	// Resizer::resizeSlackPreamble();
-	// Resizer::findResizeSlacks1();
 	init();
+	resizePreamble();
+	
 	constexpr int digits = 3;
 
 	buffer_moved_into_core_ = false;
@@ -145,8 +145,6 @@ Resizer::worstFailingPaths(const MinMax *min_max,
 		updateParasitics();
 		sta_->findRequireds();
 		Slack end_slack = sta_->vertexSlack(end, max_);
-		Slack worst_slack;
-		Vertex *worst_vertex;
 		sta_->worstSlack(max_, worst_slack, worst_vertex);
 		report_->reportLine("%s slack = %s worst_slack = %s",
 				end->name(network_),
@@ -158,100 +156,198 @@ Resizer::worstFailingPaths(const MinMax *min_max,
 
 		PathRef end_path = sta_->vertexWorstSlackPath(end, max_);
 
-		PathExpanded expanded(&end_path, sta_);
-		bool changed = false;
-		if (expanded.size() > 1) {
-			int path_length = expanded.size();
-			vector<pair<int, Delay>> load_delays;
-			int start_index = expanded.startIndex();
-			
-			
-			// Find load delay for each gate in the path.
-			for (int i = start_index; i < path_length; i++) {
-			PathRef *path = expanded.path(i);
-			Vertex *path_vertex = path->vertex(sta_);
-			const DcalcAnalysisPt *dcalc_ap = path->dcalcAnalysisPt(sta_);
-			int lib_ap = dcalc_ap->libertyIndex();
+		bool changed = swapVT(end_path, end_slack);
 
-			const Pin *path_pin = path->pin(sta_);
-			if (i > 0
-				&& network_->isDriver(path_pin)
-				&& !network_->isTopLevelPort(path_pin)) {
-				TimingArc *prev_arc = expanded.prevArc(i);
-				const TimingArc *corner_arc = prev_arc->cornerArc(lib_ap);
-				Edge *prev_edge = path->prevEdge(prev_arc, sta_);
-				Delay load_delay_w_intrinsic = graph_->arcDelay(prev_edge, prev_arc, dcalc_ap->index());
-				Delay load_delay = graph_->arcDelay(prev_edge, prev_arc, dcalc_ap->index())
-				// Remove intrinsic delay to find load dependent delay.
-				- corner_arc->intrinsicDelay();
-				load_delays.push_back(pair(i, load_delay));
-				debugPrint(logger_, RSZ, "repair_setup", 3, "{} load_delay = {}",
-						path_vertex->name(network_),
-						delayAsString(load_delay, sta_, 3));
-				report_->reportLine("%s load_delay = %s, load_delay_w_intrinsic = %s\n", path_vertex->name(network_), delayAsString(load_delay, sta_, 3), delayAsString(load_delay_w_intrinsic, sta_, 3));
-				}
-    		}
-
-	// 	LibertyCell *cell = drvr_port->libertyCell();
-	// 	LibertyCellSeq *equiv_cells = sta_->equivCells(cell);
-	// float drive = drvr_port->cornerPort(lib_ap)->driveResistance();
-    // float delay = resizer_->gateDelay(drvr_port, load_cap, resizer_->tgt_slew_dcalc_ap_)
-    //   + prev_drive * in_port->cornerPort(lib_ap)->capacitance();
-    // for (LibertyCell *equiv : *equiv_cells) {
-    //   LibertyCell *equiv_corner = equiv->cornerCell(lib_ap);
-    //   LibertyPort *equiv_drvr = equiv_corner->findLibertyPort(drvr_port_name);
-    //   LibertyPort *equiv_input = equiv_corner->findLibertyPort(in_port_name);
-    //   float equiv_drive = equiv_drvr->driveResistance();
-    //   // Include delay of previous driver into equiv gate.
-    //   float equiv_delay = resizer_->gateDelay(equiv_drvr, load_cap, dcalc_ap)
-    //     + prev_drive * equiv_input->capacitance();
-	// 	}
-
+        // resizer_->updateParasitics();
+        // sta_->findRequireds();
 		end_slack = sta_->vertexSlack(end, max_);
 		sta_->worstSlack(max_, worst_slack, worst_vertex);
 
 		if (end_index == 1)
 			end = worst_vertex;
 
-        }
-    } 
+	}
+} 
 
+
+
+bool
+Resizer::swapVT(PathRef &path, Slack path_slack)
+{
+	PathExpanded expanded(&path, sta_);
+	bool changed = false;
+	if (expanded.size() > 1) {
+		int path_length = expanded.size();
+		vector<pair<int, Delay>> load_delays;
+		int start_index = expanded.startIndex();
+		
+		// Find load delay for each gate in the path.
+		for (int i = start_index; i < path_length; i++) {
+		PathRef *path = expanded.path(i);
+		Vertex *path_vertex = path->vertex(sta_);
+		const DcalcAnalysisPt *dcalc_ap = path->dcalcAnalysisPt(sta_);
+		int lib_ap = dcalc_ap->libertyIndex();
+
+		const Pin *path_pin = path->pin(sta_);
+		if (i > 0
+			&& network_->isDriver(path_pin)
+			&& !network_->isTopLevelPort(path_pin)) {
+			TimingArc *prev_arc = expanded.prevArc(i);
+			const TimingArc *corner_arc = prev_arc->cornerArc(lib_ap);
+			Edge *prev_edge = path->prevEdge(prev_arc, sta_);
+			Delay load_delay_w_intrinsic = graph_->arcDelay(prev_edge, prev_arc, dcalc_ap->index());
+			Delay load_delay = graph_->arcDelay(prev_edge, prev_arc, dcalc_ap->index())
+				// Remove intrinsic delay to find load dependent delay.
+				- corner_arc->intrinsicDelay();
+			load_delays.push_back(pair(i, load_delay));
+			debugPrint(logger_, RSZ, "repair_setup", 3, "{} load_delay = {}",
+					path_vertex->name(network_),
+					delayAsString(load_delay, sta_, 3));
+			report_->reportLine("%s load_delay = %s, load_delay_w_intrinsic = %s\n", path_vertex->name(network_), delayAsString(load_delay, sta_, 3), delayAsString(load_delay_w_intrinsic, sta_, 3));
+			}
+		}
+
+		sort(load_delays.begin(), load_delays.end(),
+			[](pair<int, Delay> pair1,
+			   pair<int, Delay> pair2) {
+			return pair1.second > pair2.second
+				|| (pair1.second == pair2.second
+					&& pair1.first > pair2.first);
+			});
+
+		// Attack gates with largest load delays first.
+		for (const auto& [drvr_index, ignored] : load_delays) {
+			PathRef *drvr_path = expanded.path(drvr_index);
+			Vertex *drvr_vertex = drvr_path->vertex(sta_);
+			const Pin *drvr_pin = drvr_vertex->pin();
+			const Net *net = network_->net(drvr_pin);
+			LibertyPort *drvr_port = network_->libertyPort(drvr_pin);
+			LibertyCell *drvr_cell = drvr_port ? drvr_port->libertyCell() : nullptr;
+			// int fanout = this->fanout(drvr_vertex);
+			// debugPrint(logger_, RSZ, "resizer", 3, "{} {} fanout = {}",
+			// 			network_->pathName(drvr_pin),
+			// 			drvr_cell ? drvr_cell->name() : "none", fanout);
+
+			report_->reportLine("resizer = %s %s \n", network_->pathName(drvr_pin), drvr_cell ? drvr_cell->name() : "none");
+
+			if (swapVTDrvr(drvr_path, drvr_index, &expanded)) {
+				changed = true;
+				break;
+			}
+
+		}
+	}
+
+
+
+	return changed;
 }
 
-	
-	// sta::PathAPIndex path_ap_count = sta_->corners()->pathAnalysisPtCount();
-	// for (sta::PathAPIndex i = 0; i < path_ap_count; i++) {
-	// 	// worst_slacks_[path_ap_index].worstSlack(path_ap_index, worst_slack_0, worst_vertex_0);
-	// 	report_->reportLine("PathAPIndex i = %d, Slack = %f", i, worst_slack_0);
-	// }
+bool
+Resizer::swapVTDrvr(PathRef *drvr_path,
+                        int drvr_index,
+                        PathExpanded *expanded)
+{
+	report_->reportLine("swapVTDrvr called\n");
 
- 	// for (auto net : worst_slack_nets_)
-	//  	report_->reportLine("Net: %f", net_slack_map_[net]);
-    	
+	Pin *drvr_pin = drvr_path->pin(this);
+	Instance *drvr = network_->instance(drvr_pin);
+	const DcalcAnalysisPt *dcalc_ap = drvr_path->dcalcAnalysisPt(sta_);
+	float load_cap = graph_delay_calc_->loadCap(drvr_pin, dcalc_ap);
+	int in_index = drvr_index - 1;
+	PathRef *in_path = expanded->path(in_index);
+	Pin *in_pin = in_path->pin(sta_);
+	LibertyPort *in_port = network_->libertyPort(in_pin);
+	if (!this->dontTouch(drvr)) {
+		float prev_drive;
+		if (drvr_index >= 2) {
+			int prev_drvr_index = drvr_index - 2;
+			PathRef *prev_drvr_path = expanded->path(prev_drvr_index);
+			Pin *prev_drvr_pin = prev_drvr_path->pin(sta_);
+			prev_drive = 0.0;
+			LibertyPort *prev_drvr_port = network_->libertyPort(prev_drvr_pin);
+			if (prev_drvr_port) {
+				prev_drive = prev_drvr_port->driveResistance();
+			}
+		}
+		else { prev_drive = 0.0; }
 
-	// Get worst_slack_nets_ and iterate through?
+		LibertyPort *drvr_port = network_->libertyPort(drvr_pin);
+		LibertyCell *upsize = swapVTCell(in_port, drvr_port, load_cap,
+										prev_drive, dcalc_ap);
+		// if (upsize) {
+		// 	debugPrint(logger_, RSZ, "repair_setup", 3, "resize {} {} -> {}",
+		// 				network_->pathName(drvr_pin),
+		// 				drvr_port->libertyCell()->name(),
+		// 				upsize->name());
+		// 	if (!this->dontTouch(drvr)
+		// 		&& resizer_->replaceCell(drvr, upsize, true)) {
+		// 		resize_count_++;
+		// 		return true;
+		// 	}
+		// }
+	}
+    return false;
+}
 
-	// IGNORE BELOW, just some potentially useful snippets of code from other functions.
-	// searchPreamble();
-	// Slack worst_slack_0;
-	// Vertex *worst_vertex_0;
-	// search_->worstSlack(min_max, worst_slack_0, worst_vertex_0);
-	// vertexWorstSlackPath(worst_vertex_0, nullptr, min_max);
+LibertyCell *
+Resizer::swapVTCell(LibertyPort *in_port,
+                        LibertyPort *drvr_port,
+                        float load_cap,
+                        float prev_drive,
+                        const DcalcAnalysisPt *dcalc_ap)
+{
 
-	// worstSlackPreamble();
-    // worst_slacks_->worstSlack(min_max, worst_slack, worst_vertex);
+	report_->reportLine("swapVTCell called\n");
 
-	// tnsPreamble();
-	// Slack tns = 0.0;
-	// for (Corner *corner : *corners_) {
-	//   PathAPIndex path_ap_index = corner->findPathAnalysisPt(min_max)->index();
-	//   Slack tns1 = tns_[path_ap_index];
-	//   if (delayLess(tns1, tns, this))
-	//     tns = tns1;
-	// }
-	// return tns;
+	// diff library for each characterization
 
+	int lib_ap = dcalc_ap->libertyIndex();
+	LibertyCell *cell = drvr_port->libertyCell();
+	report_->reportLine("cell: %s\n", cell->name());
+	LibertyCellSeq *equiv_cells = sta_->equivCells(cell);
 
-
-
+	if (equiv_cells) {
+		report_->reportLine("equiv cells: \n");
+		const char *in_port_name = in_port->name();
+		const char *drvr_port_name = drvr_port->name();
+		// sort(equiv_cells,
+		// 	[=] (const LibertyCell *cell1,
+		// 		const LibertyCell *cell2) {
+		// 	LibertyPort *port1=cell1->findLibertyPort(drvr_port_name)->cornerPort(lib_ap);
+		// 	LibertyPort *port2=cell2->findLibertyPort(drvr_port_name)->cornerPort(lib_ap);
+		// 	float drive1 = port1->driveResistance();
+		// 	float drive2 = port2->driveResistance();
+		// 	ArcDelay intrinsic1 = port1->intrinsicDelay(this);
+		// 	ArcDelay intrinsic2 = port2->intrinsicDelay(this);
+		// 	return drive1 > drive2
+		// 		|| ((drive1 == drive2
+		// 			&& intrinsic1 < intrinsic2)
+		// 			|| (intrinsic1 == intrinsic2
+		// 				&& port1->capacitance() < port2->capacitance()));
+		// 	});
+		float drive = drvr_port->cornerPort(lib_ap)->driveResistance();
+		float delay = this->gateDelay(drvr_port, load_cap, this->tgt_slew_dcalc_ap_)
+		+ prev_drive * in_port->cornerPort(lib_ap)->capacitance();
+		for (LibertyCell *equiv : *equiv_cells) {
+			LibertyCell *equiv_corner = equiv->cornerCell(lib_ap);
+			LibertyPort *equiv_drvr = equiv_corner->findLibertyPort(drvr_port_name);
+			LibertyPort *equiv_input = equiv_corner->findLibertyPort(in_port_name);
+			float equiv_drive = equiv_drvr->driveResistance();
+			// Include delay of previous driver into equiv gate.
+			float equiv_delay = this ->gateDelay(equiv_drvr, load_cap, dcalc_ap)
+				+ prev_drive * equiv_input->capacitance();
+			report_->reportLine("cell name: %s    in_port name: %s    drvr_por name: %s    equiv_drive = %f    equiv_delay = %f\n",
+								equiv->name(), drvr_port_name, equiv_drive, equiv_delay);
+			if (repair_setup_->meetsSizeCriteria(cell, equiv, true)) {
+				report_->reportLine("Meets size criteria");
+			}
+			if (!this->dontUse(equiv)
+				&& equiv_drive < drive
+				&& equiv_delay < delay)
+				return equiv;
+			}
+	}
+  return nullptr;
+}
 } // namespace

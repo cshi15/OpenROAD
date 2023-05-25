@@ -42,6 +42,8 @@
 #include "db_sta/dbSta.hh"
 #include "sta/UnorderedSet.hh"
 #include "sta/Path.hh"
+#include "sta/PathRef.hh"
+#include "sta/PathExpanded.hh"
 
 namespace grt {
 class GlobalRouter;
@@ -115,6 +117,8 @@ using sta::Pvt;
 using sta::Parasitics;
 using sta::Parasitic;
 using sta::ParasiticNode;
+using sta::PathExpanded;
+using sta::PathRef;
 using sta::PinSeq;
 using sta::Slack;
 
@@ -339,10 +343,20 @@ public:
   double dbuToMeters(int dist) const;
   int metersToDbu(double dist) const;
   void helloworld();
-  void worstFailingPaths(const MinMax *min_max,
+  void worstFailingPaths(
 		// Return values.
 		Slack &worst_slack,
 		Vertex *&worst_vertex);
+  
+  bool swapVT(PathRef &path, Slack path_slack);
+  bool swapVTDrvr(PathRef *drvr_path,
+                        int drvr_index,
+                        PathExpanded *expanded);
+  LibertyCell *swapVTCell(LibertyPort *in_port,
+                        LibertyPort *drvr_port,
+                        float load_cap,
+                        float prev_drive,
+                        const DcalcAnalysisPt *dcalc_ap);
 
 protected:
   void init();

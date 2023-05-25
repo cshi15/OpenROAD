@@ -506,23 +506,18 @@ proc helloworld {} {
   utl::report "helloworld called."
 }
 
-sta::define_cmd_args "worst_failing_paths" {[-min] [-max] [-digits digits]}
-
+sta::define_cmd_args "worst_failing_paths" {[-digits digits]}
 sta::proc_redirect worst_failing_paths {
   global sta_report_default_digits
+  sta::parse_key_args "worst_failing_paths" args keys {-digits} 
 
-  sta::parse_key_args "worst_failing_paths" args keys {-digits} flags {-min -max}
-
-  set min_max [sta::parse_min_max_flags flags]
   if [info exists keys(-digits)] {
     set digits $keys(-digits)
     sta::check_positive_integer "-digits" $digits
   } else {
     set digits $sta_report_default_digits
   }
-
-  rsz::worst_failing_paths_cmd $min_max
-
+  rsz::worst_failing_paths_cmd 
 }
 
 namespace eval rsz {
